@@ -1,2 +1,2 @@
-# trading_dashboard
-Trading journal to track and analyze trades
+# sma-backtest
+Back-testing a simple moving average strategy

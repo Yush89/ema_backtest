@@ -1,10 +1,10 @@
-Product Requirements Document: SMA Crossover Strategy Backtesting System
+Product Requirements Document: EMA Crossover Strategy Backtesting System
 1. Project Overview
-Develop a backtesting system to evaluate a Simple Moving Average (SMA) crossover trading strategy for AMD stock using historical data from 2022-2025.
+Develop a backtesting system to evaluate a Simple Moving Average (EMA) crossover trading strategy for AMD stock using historical data from 2022-2025.
 
 2. Project Goals
 Create a reliable backtesting framework
-Evaluate SMA crossover strategy performance
+Evaluate EMA crossover strategy performance
 Generate actionable performance metrics
 Provide visualization of results
 
@@ -18,7 +18,7 @@ Ensure data continuity
 3.2 Strategy Components
 
 3.2.1 Signal Generation
-Calculate 20-day and 50-day SMAs
+Calculate 9-day and 20-day EMAs
 Generate trading signals based on crossovers
 Implement signal smoothing to reduce false signals
 
@@ -49,7 +49,7 @@ Create data preprocessing pipeline
 Set up proper indexing and time series structure
 
 Phase 2: Strategy Implementation
-Create SMA calculation module
+Create EMA calculation module
 Implement signal generation logic
 Develop position management system
 Add risk management rules
@@ -109,7 +109,7 @@ Return metrics
 Trade analysis
 
 8.3 Visualizations
-Price and SMA charts
+Price and EMA charts
 Equity curve
 Drawdown chart
 Trade distribution

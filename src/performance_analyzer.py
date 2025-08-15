@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, List
+from typing import Dict
 import matplotlib.pyplot as plt
 
 class PerformanceAnalyzer:
@@ -8,63 +8,76 @@ class PerformanceAnalyzer:
     Analyzes and visualizes trading strategy performance.
     """
     
-    def __init__(self, portfolio: pd.DataFrame, trades: List[Dict], data: pd.DataFrame):
+    def __init__(self, portfolio: pd.DataFrame, trades: pd.DataFrame, data: pd.DataFrame):
         """
         Initialize the performance analyzer.
         
         Args:
             portfolio (pd.DataFrame): Portfolio performance data
-            trades (List[Dict]): List of executed trades
+            trades (pd.DataFrame): Executed trades data
             data (pd.DataFrame): Original market data with signals
         """
         self.portfolio = portfolio
-        self.trades = pd.DataFrame(trades)
+        self.trades = trades
         self.data = data
         self.metrics = {}
-        
-    def calculate_metrics(self, risk_free_rate: float = 0.02) -> Dict:
+    
+    def analyze_trades(self):
         """
-        Calculate performance metrics.
-        
-        Args:
-            risk_free_rate (float): Annual risk-free rate
-            
+        Analyze the trade log and compute performance metrics.
         Returns:
-            Dict: Dictionary of performance metrics
+            dict: Dictionary of performance metrics
         """
-        # Calculate returns
-        self.portfolio['returns'] = self.portfolio['total_value'].pct_change()
-        
-        # Total Return
-        total_return = (
-            (self.portfolio['total_value'].iloc[-1] - 
-             self.portfolio['total_value'].iloc[0]) /
-            self.portfolio['total_value'].iloc[0]
-        )
-        
-        # Calculate Sharpe Ratio
-        excess_returns = self.portfolio['returns'] - risk_free_rate/252
-        sharpe_ratio = np.sqrt(252) * excess_returns.mean() / excess_returns.std()
-        
-        # Calculate Maximum Drawdown
-        cumulative_returns = (1 + self.portfolio['returns']).cumprod()
-        rolling_max = cumulative_returns.expanding().max()
-        drawdowns = cumulative_returns / rolling_max - 1
-        max_drawdown = drawdowns.min()
-        
-        # Calculate Win Rate
-        winning_trades = self.trades[self.trades['type'] == 'sell']
-        win_rate = len(winning_trades[winning_trades['price'] > winning_trades['price'].shift(1)]) / len(winning_trades)
-        
-        self.metrics = {
-            'Total Return': total_return,
-            'Sharpe Ratio': sharpe_ratio,
-            'Maximum Drawdown': max_drawdown,
-            'Win Rate': win_rate,
-            'Number of Trades': len(self.trades) // 2  # Divide by 2 as each round trip is 2 trades
+        if self.trades is None or self.trades.empty:
+            raise ValueError("No trades to analyze. Run log_trades first.")
+
+        trades_df = self.trades.copy()
+
+        # Ensure pct_gain_loss column is numeric and drop NaNs
+        trades_df['pct_gain_loss'] = pd.to_numeric(trades_df['pct_gain_loss'], errors='coerce')
+        trades_df = trades_df.dropna(subset=['pct_gain_loss'])
+
+        if trades_df.empty:
+            raise ValueError("No completed trades to analyze.")
+
+        # Total Return (based on cumulative trade returns)
+        total_return = ((trades_df['pct_gain_loss'] / 100 + 1).prod() - 1) * 100
+
+        # Sharpe Ratio (annualized assuming daily trades, using mean/std of trade returns)
+        mean_return = trades_df['pct_gain_loss'].mean()
+        std_return = trades_df['pct_gain_loss'].std()
+        sharpe_ratio = (mean_return / std_return) * np.sqrt(252) * 100 if std_return != 0 else np.nan
+
+        # Max Drawdown (from cumulative portfolio returns)
+        cumulative_returns = (trades_df['pct_gain_loss'] / 100 + 1).cumprod()
+        peak = cumulative_returns.cummax()
+        drawdown = (cumulative_returns - peak) / peak * 100
+        max_drawdown = drawdown.min()
+        max_drawdown_time = drawdown.idxmin()
+
+        # Max trade return
+        max_trade_return = trades_df['pct_gain_loss'].max()
+        max_trade_return_time = trades_df['pct_gain_loss'].idxmax()
+
+        # Win rate
+        win_rate = (trades_df['pct_gain_loss'] > 0).mean() * 100
+
+        # Number of trades
+        num_trades = len(trades_df)
+
+        # Prepare metrics dictionary
+        metrics = {
+            'Total Return': f"{total_return:.2f}%",
+            'Sharpe Ratio': f"{sharpe_ratio:.2f}%",
+            'Max Drawdown': f"{max_drawdown:.2f}%",
+            'Max Drawdown Occurred at': max_drawdown_time,
+            'Max Trade Return': f"{max_trade_return:.2f}%",
+            'Max Trade Return Occurred at': max_trade_return_time,
+            'Win Rate': f"{win_rate:.2f}%",
+            'Number of Trades': num_trades
         }
-        
-        return self.metrics
+
+        return metrics
     
     def plot_results(self) -> None:
         """
@@ -119,3 +132,4 @@ class PerformanceAnalyzer:
         trades_df['return'] = trades_df['profit'] / trades_df['cost']
         
         return trades_df
+    

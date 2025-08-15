@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
-from .strategy import SMAStrategy
+from .strategy import EMAStrategy
 from .data_handler import DataHandler
 
 class Backtester:
@@ -10,72 +10,86 @@ class Backtester:
     """
     
     def __init__(self,
-                 strategy: SMAStrategy,
-                 initial_capital: float = 10000.0,
-                 commission: float = 0.001,
-                 slippage: float = 0.0001):
+                 strategy: EMAStrategy,
+                 initial_capital: float = 10000.0
+                 ):
         """
         Initialize the backtester.
         
         Args:
-            strategy (SMAStrategy): Trading strategy instance
+            strategy (EMAStrategy): Trading strategy instance
             initial_capital (float): Initial capital for backtesting
             commission (float): Commission rate per trade
             slippage (float): Slippage rate per trade
         """
         self.strategy = strategy
         self.initial_capital = initial_capital
-        self.commission = commission
-        self.slippage = slippage
         self.portfolio = None
-        self.trades = []
-        
+        self.trades = None
+
+
     def run(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Run the backtest.
-        
+
         Args:
-            data (pd.DataFrame): Market data with signals
-            
+            data (pd.DataFrame): Must contain ['timestamp', 'close', 'EMA_9', 'EMA_20', 'signal']
+
         Returns:
-            pd.DataFrame: Portfolio performance data
+            pd.DataFrame: Portfolio performance over time.
         """
-        # Initialize portfolio tracking
-        self.portfolio = self._initialize_portfolio(data.index)
-        positions = pd.DataFrame(0, index=data.index, columns=['shares'])
-        
-        # Run through each bar
-        for i in range(1, len(data)):
-            current_bar = data.iloc[i]
-            prev_bar = data.iloc[i-1]
-            
-            # Check for trade signals
-            if current_bar['position'] != 0:
-                self._execute_trade(
-                    current_bar,
-                    positions,
-                    i,
-                    current_bar['position']
-                )
+        initial_capital = 10000
+        position_size = 500  # fixed capital per trade
+
+         # Initialize portfolio tracking
+        self.portfolio = self._initialize_portfolio(data)
+
+        in_position = False
+        entry_price = 0.0
+        shares = 0
+        cash = initial_capital
+        total_value = initial_capital
+        last_trade_pnl = 0.0
+
+        for i in range(len(self.portfolio)):
+            price = self.portfolio.iloc[i]['close']
+            signal = self.portfolio.iloc[i]['signal']
+
+            if not in_position:
+                # Enter long on signal 1 if we have cash
+                if signal == 1 and cash >= position_size:
+                    shares = position_size / price
+                    entry_price = price
+                    cash -= shares * price
+                    in_position = True
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('trade_price')] = price
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('shares')] = round(shares, 2)
+
             else:
-                # Update portfolio value for hold positions
-                positions.iloc[i] = positions.iloc[i-1]
-                self.portfolio.loc[current_bar.name, 'position_value'] = (
-                    positions.iloc[i]['shares'] * current_bar['close']
-                )
-                self.portfolio.loc[current_bar.name, 'cash'] = (
-                    self.portfolio.iloc[i-1]['cash']
-                )
-            
-            # Update total portfolio value
-            self.portfolio.loc[current_bar.name, 'total_value'] = (
-                self.portfolio.loc[current_bar.name, 'position_value'] +
-                self.portfolio.loc[current_bar.name, 'cash']
+                # Exit long on signal -1
+                if signal == -1:
+                    cash += shares * price
+                    last_trade_pnl = (price - entry_price) * shares
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('pnl_trade')] = last_trade_pnl
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('win_loss')] = 1 if last_trade_pnl > 0 else 0
+                    shares = 0
+                    in_position = False
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('trade_price')] = price
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('shares')] = 0
+
+            # Update holdings and total portfolio value on every step
+            holdings = shares * price
+            total_value = cash + holdings
+            self.portfolio.iloc[i, self.portfolio.columns.get_loc('cash')] = round(cash, 2)
+            self.portfolio.iloc[i, self.portfolio.columns.get_loc('holdings')] = holdings
+            self.portfolio.iloc[i, self.portfolio.columns.get_loc('total_value')] = round(total_value, 2)
+            self.portfolio.iloc[i, self.portfolio.columns.get_loc('portfolio_return_pct')] = (
+                (total_value - initial_capital) / initial_capital * 100
             )
-        
+
         return self.portfolio
     
-    def _initialize_portfolio(self, index: pd.DatetimeIndex) -> pd.DataFrame:
+    def _initialize_portfolio(self, data : pd.DataFrame) -> pd.DataFrame:
         """
         Initialize the portfolio DataFrame.
         
@@ -85,77 +99,64 @@ class Backtester:
         Returns:
             pd.DataFrame: Initialized portfolio DataFrame
         """
-        portfolio = pd.DataFrame(index=index)
-        portfolio['position_value'] = 0.0
+        portfolio = data.copy()
         portfolio['cash'] = self.initial_capital
+        portfolio['holdings'] = 0.0
         portfolio['total_value'] = self.initial_capital
+        portfolio['trade_price'] = np.nan
+        portfolio['shares'] = 0
+        portfolio['pnl_trade'] = np.nan
+        portfolio['win_loss'] = np.nan
+        portfolio['portfolio_return_pct'] = 0.0
+
+        portfolio = portfolio.astype({
+            'shares': 'float',
+            'cash': 'float',
+            'total_value': 'float'
+            })
         return portfolio
-    
-    def _execute_trade(self,
-                      bar: pd.Series,
-                      positions: pd.DataFrame,
-                      index: int,
-                      signal: float) -> None:
+
+    def log_trades(self) -> pd.DataFrame:
         """
-        Execute a trade and update the portfolio.
-        
-        Args:
-            bar (pd.Series): Current price bar
-            positions (pd.DataFrame): Current positions
-            index (int): Current index
-            signal (float): Trade signal (1 for buy, -1 for sell)
+        Create a trades DataFrame from portfolio rows where trades occurred.
+        Returns:
+            pd.DataFrame: DataFrame of trades
         """
-        current_price = bar['close']
-        
-        if signal > 0:  # Buy signal
-            # Calculate position size
-            price_with_slippage = current_price * (1 + self.slippage)
-            position_size = self.strategy.calculate_position_size(
-                price_with_slippage,
-                self.portfolio.iloc[index-1]['total_value']
-            )
-            
-            # Calculate costs
-            trade_cost = (position_size * price_with_slippage * 
-                         (1 + self.commission))
-            
-            # Update positions and portfolio
-            positions.iloc[index] = position_size
-            self.portfolio.iloc[index, self.portfolio.columns.get_loc('position_value')] = (
-                position_size * current_price
-            )
-            self.portfolio.iloc[index, self.portfolio.columns.get_loc('cash')] = (
-                self.portfolio.iloc[index-1]['cash'] - trade_cost
-            )
-            
-            # Record trade
-            self.trades.append({
-                'timestamp': bar.name,
-                'type': 'buy',
-                'shares': position_size,
-                'price': price_with_slippage,
-                'cost': trade_cost
-            })
-            
-        elif signal < 0:  # Sell signal
-            # Calculate position size and value
-            shares_to_sell = positions.iloc[index-1]['shares']
-            price_with_slippage = current_price * (1 - self.slippage)
-            trade_value = shares_to_sell * price_with_slippage
-            trade_cost = trade_value * self.commission
-            
-            # Update positions and portfolio
-            positions.iloc[index] = 0
-            self.portfolio.iloc[index, self.portfolio.columns.get_loc('position_value')] = 0
-            self.portfolio.iloc[index, self.portfolio.columns.get_loc('cash')] = (
-                self.portfolio.iloc[index-1]['cash'] + trade_value - trade_cost
-            )
-            
-            # Record trade
-            self.trades.append({
-                'timestamp': bar.name,
-                'type': 'sell',
-                'shares': shares_to_sell,
-                'price': price_with_slippage,
-                'cost': trade_cost
-            })
+        if self.portfolio is None or self.portfolio.empty:
+            raise ValueError("Portfolio is empty. Run the strategy before logging trades.")
+
+        # Filter rows where a trade actually happened
+        trade_rows = self.portfolio[self.portfolio['signal'] != 0].copy()
+
+        trades_list = []
+        open_trade = None
+
+        for _, row in trade_rows.iterrows():
+            if row['signal'] == 1:  # Buy
+                # Record the buy
+                buy_trade = row.copy()
+                buy_trade['value'] = 500  # fixed buy value
+                buy_trade['pct_gain_loss'] = None
+                trades_list.append(buy_trade)
+                open_trade = buy_trade
+            elif row['signal'] == -1 and open_trade is not None:  # Sell
+                # Record the sell
+                sell_trade = row.copy()
+                sell_trade['value'] = row['trade_price'] * row['shares']  # actual sell value
+                # Calculate pct gain/loss relative to the last buy
+                pct_gain_loss = ((row['trade_price'] - open_trade['trade_price']) / open_trade['trade_price']) * 100
+                sell_trade['pct_gain_loss'] = pct_gain_loss
+                # Update the last buy with the same pct_gain_loss
+                trades_list[-1]['pct_gain_loss'] = pct_gain_loss
+                # Set holdings to 0 after sell
+                sell_trade['holdings'] = 0
+                trades_list.append(sell_trade)
+                open_trade = None
+
+        # Create final DataFrame
+        trades_df = pd.DataFrame(trades_list)
+
+        # Store internally
+        self.trades = trades_df
+
+        return self.trades

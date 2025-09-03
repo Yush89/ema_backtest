@@ -40,12 +40,16 @@ class PerformanceAnalyzer:
         if trades_df.empty:
             raise ValueError("No completed trades to analyze.")
 
-        # Total Return (based on cumulative trade returns)
-        total_return = ((trades_df['pct_gain_loss'] / 100 + 1).prod() - 1) * 100
+        # Portfolio Return (from portfolio value)
+        portfolio_return = self.portfolio['portfolio_return_pct'].iloc[-1]
+        
+        # Trade Returns (sum of individual trade returns, exit trades only)
+        exit_trades = trades_df[trades_df['signal'] == -1]
+        trade_returns = exit_trades['pct_gain_loss'].sum()
 
         # Sharpe Ratio (annualized assuming daily trades, using mean/std of trade returns)
-        mean_return = trades_df['pct_gain_loss'].mean()
-        std_return = trades_df['pct_gain_loss'].std()
+        mean_return = exit_trades['pct_gain_loss'].mean()
+        std_return = exit_trades['pct_gain_loss'].std()
         sharpe_ratio = (mean_return / std_return) * np.sqrt(252) * 100 if std_return != 0 else np.nan
 
         # Max Drawdown (from cumulative portfolio returns)
@@ -67,7 +71,8 @@ class PerformanceAnalyzer:
 
         # Prepare metrics dictionary
         metrics = {
-            'Total Return': f"{total_return:.2f}%",
+            'Portfolio Return': f"{portfolio_return:.2f}%",
+            'Total Trade Returns': f"{trade_returns:.2f}%",
             'Sharpe Ratio': f"{sharpe_ratio:.2f}%",
             'Max Drawdown': f"{max_drawdown:.2f}%",
             'Max Drawdown Occurred at': max_drawdown_time,

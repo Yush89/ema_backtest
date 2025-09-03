@@ -11,7 +11,8 @@ class Backtester:
     
     def __init__(self,
                  strategy: EMAStrategy,
-                 initial_capital: float = 10000.0
+                 initial_capital: float,
+                 position_size: float
                  ):
         """
         Initialize the backtester.
@@ -24,6 +25,7 @@ class Backtester:
         """
         self.strategy = strategy
         self.initial_capital = initial_capital
+        self.position_size = position_size
         self.portfolio = None
         self.trades = None
 
@@ -38,8 +40,6 @@ class Backtester:
         Returns:
             pd.DataFrame: Portfolio performance over time.
         """
-        initial_capital = 10000
-        position_size = 500  # fixed capital per trade
 
          # Initialize portfolio tracking
         self.portfolio = self._initialize_portfolio(data)
@@ -47,44 +47,55 @@ class Backtester:
         in_position = False
         entry_price = 0.0
         shares = 0
-        cash = initial_capital
-        total_value = initial_capital
-        last_trade_pnl = 0.0
+        cash = self.initial_capital
+        total_value = self.initial_capital
+        position_size = self.position_size 
+        trade_pnl = 0
 
         for i in range(len(self.portfolio)):
-            price = self.portfolio.iloc[i]['close']
+            current_price = self.portfolio.iloc[i]['close']
             signal = self.portfolio.iloc[i]['signal']
 
             if not in_position:
                 # Enter long on signal 1 if we have cash
                 if signal == 1 and cash >= position_size:
-                    shares = position_size / price
-                    entry_price = price
-                    cash -= shares * price
+                    shares = position_size / current_price
+                    entry_price = current_price
+                    cash -= shares * current_price
                     in_position = True
-                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('trade_price')] = price
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('trade_price')] = entry_price
                     self.portfolio.iloc[i, self.portfolio.columns.get_loc('shares')] = round(shares, 2)
 
             else:
                 # Exit long on signal -1
                 if signal == -1:
-                    cash += shares * price
-                    last_trade_pnl = (price - entry_price) * shares
-                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('pnl_trade')] = last_trade_pnl
-                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('win_loss')] = 1 if last_trade_pnl > 0 else 0
-                    shares = 0
-                    in_position = False
-                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('trade_price')] = price
+                    # Calculate trade P&L
+                    trade_pnl = (current_price - entry_price) * shares
+                    cash += shares * current_price
+
+                    # Record exit details
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('trade_price')] = current_price
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('pnl_trade')] = round(trade_pnl, 2)
+                    self.portfolio.iloc[i, self.portfolio.columns.get_loc('win_loss')] = 1 if trade_pnl > 0 else 0
                     self.portfolio.iloc[i, self.portfolio.columns.get_loc('shares')] = 0
 
+                     # Reset position tracking
+                    shares = 0
+                    entry_price = 0.0
+                    in_position = False
+                    
+                    
+
             # Update holdings and total portfolio value on every step
-            holdings = shares * price
+            holdings = shares * current_price
             total_value = cash + holdings
+
+            # Update portfolio metrics
             self.portfolio.iloc[i, self.portfolio.columns.get_loc('cash')] = round(cash, 2)
-            self.portfolio.iloc[i, self.portfolio.columns.get_loc('holdings')] = holdings
+            self.portfolio.iloc[i, self.portfolio.columns.get_loc('holdings')] = round(holdings, 2)
             self.portfolio.iloc[i, self.portfolio.columns.get_loc('total_value')] = round(total_value, 2)
-            self.portfolio.iloc[i, self.portfolio.columns.get_loc('portfolio_return_pct')] = (
-                (total_value - initial_capital) / initial_capital * 100
+            self.portfolio.iloc[i, self.portfolio.columns.get_loc('portfolio_return_pct')] = round(
+                (total_value - self.initial_capital) / self.initial_capital * 100, 2
             )
 
         return self.portfolio
@@ -103,10 +114,10 @@ class Backtester:
         portfolio['cash'] = self.initial_capital
         portfolio['holdings'] = 0.0
         portfolio['total_value'] = self.initial_capital
-        portfolio['trade_price'] = np.nan
+        portfolio['trade_price'] = 0.0
         portfolio['shares'] = 0
-        portfolio['pnl_trade'] = np.nan
-        portfolio['win_loss'] = np.nan
+        portfolio['pnl_trade'] = 0.0
+        portfolio['win_loss'] = 0.0
         portfolio['portfolio_return_pct'] = 0.0
 
         portfolio = portfolio.astype({
@@ -136,7 +147,7 @@ class Backtester:
                 # Record the buy
                 buy_trade = row.copy()
                 buy_trade['value'] = 500  # fixed buy value
-                buy_trade['pct_gain_loss'] = None
+                buy_trade['pct_gain_loss'] = None  # Entry trades have no gain/loss
                 trades_list.append(buy_trade)
                 open_trade = buy_trade
             elif row['signal'] == -1 and open_trade is not None:  # Sell
@@ -144,10 +155,9 @@ class Backtester:
                 sell_trade = row.copy()
                 sell_trade['value'] = row['trade_price'] * row['shares']  # actual sell value
                 # Calculate pct gain/loss relative to the last buy
-                pct_gain_loss = ((row['trade_price'] - open_trade['trade_price']) / open_trade['trade_price']) * 100
-                sell_trade['pct_gain_loss'] = pct_gain_loss
-                # Update the last buy with the same pct_gain_loss
-                trades_list[-1]['pct_gain_loss'] = pct_gain_loss
+                if open_trade['trade_price'] != 0:
+                    pct_gain_loss = ((row['trade_price'] - open_trade['trade_price']) / open_trade['trade_price']) * 100
+                    sell_trade['pct_gain_loss'] = pct_gain_loss  # Only exit trades have gain/loss
                 # Set holdings to 0 after sell
                 sell_trade['holdings'] = 0
                 trades_list.append(sell_trade)

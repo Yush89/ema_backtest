@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from typing import Dict
 import matplotlib.pyplot as plt
 
 class PerformanceAnalyzer:
@@ -47,10 +46,11 @@ class PerformanceAnalyzer:
         exit_trades = trades_df[trades_df['signal'] == -1]
         trade_returns = exit_trades['pct_gain_loss'].sum()
 
-        # Sharpe Ratio (annualized assuming daily trades, using mean/std of trade returns)
-        mean_return = exit_trades['pct_gain_loss'].mean()
-        std_return = exit_trades['pct_gain_loss'].std()
-        sharpe_ratio = (mean_return / std_return) * np.sqrt(252) * 100 if std_return != 0 else np.nan
+        # Sharpe Ratio
+        trades_df["periodic_return"] = trades_df["total_value"].pct_change().dropna()
+        mean_return = trades_df['periodic_return'].mean()
+        std_return = trades_df['periodic_return'].std()
+        sharpe_ratio = (mean_return / std_return) * np.sqrt(252) if std_return != 0 else np.nan
 
         # Max Drawdown (from cumulative portfolio returns)
         cumulative_returns = (trades_df['pct_gain_loss'] / 100 + 1).cumprod()
@@ -63,21 +63,22 @@ class PerformanceAnalyzer:
         max_trade_return = trades_df['pct_gain_loss'].max()
         max_trade_return_time = trades_df['pct_gain_loss'].idxmax()
 
-        # Win rate
-        win_rate = (trades_df['pct_gain_loss'] > 0).mean() * 100
-
         # Number of trades
-        num_trades = len(trades_df)
+        num_trades = len(exit_trades) 
+
+        # Win rate
+        winning_trades = len(exit_trades[exit_trades['pct_gain_loss'] > 0])
+        win_rate = (winning_trades / num_trades * 100) if num_trades > 0 else 0
 
         # Prepare metrics dictionary
         metrics = {
             'Portfolio Return': f"{portfolio_return:.2f}%",
             'Total Trade Returns': f"{trade_returns:.2f}%",
-            'Sharpe Ratio': f"{sharpe_ratio:.2f}%",
+            'Sharpe Ratio': f"{sharpe_ratio:.2f}",
             'Max Drawdown': f"{max_drawdown:.2f}%",
-            'Max Drawdown Occurred at': max_drawdown_time,
+            #'Max Drawdown Occurred at': max_drawdown_time,
             'Max Trade Return': f"{max_trade_return:.2f}%",
-            'Max Trade Return Occurred at': max_trade_return_time,
+            #'Max Trade Return Occurred at': max_trade_return_time,
             'Win Rate': f"{win_rate:.2f}%",
             'Number of Trades': num_trades
         }

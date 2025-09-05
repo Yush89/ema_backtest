@@ -147,7 +147,7 @@ class Backtester:
                 # Record the buy
                 buy_trade = row.copy()
                 buy_trade['value'] = 500  # fixed buy value
-                buy_trade['pct_gain_loss'] = None  # Entry trades have no gain/loss
+                buy_trade['pct_gain_loss'] = 0  # Entry trades have no gain/loss
                 trades_list.append(buy_trade)
                 open_trade = buy_trade
             elif row['signal'] == -1 and open_trade is not None:  # Sell
@@ -156,7 +156,7 @@ class Backtester:
                 sell_trade['value'] = row['trade_price'] * row['shares']  # actual sell value
                 # Calculate pct gain/loss relative to the last buy
                 if open_trade['trade_price'] != 0:
-                    pct_gain_loss = ((row['trade_price'] - open_trade['trade_price']) / open_trade['trade_price']) * 100
+                    pct_gain_loss = round(((row['trade_price'] - open_trade['trade_price']) / open_trade['trade_price']) * 100, 2)
                     sell_trade['pct_gain_loss'] = pct_gain_loss  # Only exit trades have gain/loss
                 # Set holdings to 0 after sell
                 sell_trade['holdings'] = 0

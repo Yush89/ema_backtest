@@ -1,12 +1,10 @@
 import pandas as pd
-import numpy as np
 import os
 from typing import Optional
 from datetime import datetime, timedelta
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from pathlib import Path
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -176,7 +174,7 @@ class DataHandler:
         if missing_columns:
             raise ValueError(f"Missing required columns: {missing_columns}")
             
-    def add_technical_indicators(self, ema_short: int = 9, ema_long: int = 20) -> pd.DataFrame:
+    def add_technical_indicators(self, ema_short: int, ema_long: int) -> pd.DataFrame:
         """
         Add technical indicators to the dataset.
         
@@ -192,8 +190,8 @@ class DataHandler:
             
         df = self.data.copy()
         
-        # Calculate EMAs
-        df[f'EMA_{ema_short}'] = df['close'].ewm(span=ema_short, adjust=False).mean()
-        df[f'EMA_{ema_long}'] = df['close'].ewm(span=ema_long, adjust=False).mean()
+        # Calculate EMAs with generic names
+        df['EMA_short'] = df['close'].ewm(span=ema_short, adjust=False).mean()
+        df['EMA_long'] = df['close'].ewm(span=ema_long, adjust=False).mean()
         
         return df

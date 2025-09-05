@@ -8,8 +8,8 @@ class EMAStrategy:
     
     def __init__(self, 
                  # EMA parameters
-                 ema_short: int = 9, 
-                 ema_long: int = 20,
+                 ema_short: int, 
+                 ema_long: int,
                  use_ema: bool = True,
                  # ADX parameters
                  adx_period: int = 15,
@@ -158,8 +158,8 @@ class EMAStrategy:
         # Generate base crossover signals
         for i in range(1, len(df)):
             # Check crossover conditions
-            short_gt_long = df[f'EMA_{self.ema_short}'].iloc[i] > df[f'EMA_{self.ema_long}'].iloc[i]
-            prev_short_gt_long = df[f'EMA_{self.ema_short}'].iloc[i-1] > df[f'EMA_{self.ema_long}'].iloc[i-1]
+            short_gt_long = df['EMA_short'].iloc[i] > df['EMA_long'].iloc[i]
+            prev_short_gt_long = df['EMA_short'].iloc[i-1] > df['EMA_long'].iloc[i-1]
 
             if not in_position:
                 # Entry signal on bullish crossover

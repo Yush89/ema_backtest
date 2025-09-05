@@ -116,26 +116,84 @@ class PerformanceAnalyzer:
     
     def generate_trade_report(self) -> pd.DataFrame:
         """
-        Generate a detailed trade report.
+        Generate a detailed trade report showing complete trades (entry and exit pairs).
         
         Returns:
-            pd.DataFrame: Trade report with performance metrics
+            pd.DataFrame: Trade report with performance metrics including:
+                - Entry and exit prices
+                - Profit/Loss per trade
+                - Percentage return per trade
+                - Trade duration
+                - Total value at trade exit
         """
-        # Convert trades list to DataFrame if it's not already
-        if isinstance(self.trades, list):
-            trades_df = pd.DataFrame(self.trades)
-        else:
-            trades_df = self.trades.copy()
+        trades_df = self.trades.copy()
         
-        # Calculate trade-specific metrics
-        trades_df['profit'] = trades_df['price'] * trades_df['shares']
-        trades_df['profit'] = trades_df['profit'].diff()
+        # Initialize lists to store complete trade information
+        complete_trades = []
+        entry_price = None
+        entry_time = None
+        entry_shares = None
         
-        # Remove buy trades (they don't have profit information)
-        trades_df = trades_df[trades_df['type'] == 'sell'].copy()
+        for idx, row in trades_df.iterrows():
+            if row['signal'] == 1:  # Entry
+                entry_price = row['trade_price']
+                entry_time = idx
+                entry_shares = row['shares']
+            elif row['signal'] == -1 and entry_price is not None:  # Exit
+                exit_price = row['trade_price']
+                
+                # Calculate trade metrics
+                profit = (exit_price - entry_price) * entry_shares
+                pct_return = (exit_price - entry_price) / entry_price * 100
+                duration = idx - entry_time
+                
+                complete_trades.append({
+                    'entry_time': entry_time,
+                    'exit_time': idx,
+                    'entry_price': entry_price,
+                    'exit_price': exit_price,
+                    'shares': entry_shares,
+                    'profit': profit,
+                    'return_pct': pct_return,
+                    'duration': duration,
+                    'total_value': row['total_value']
+                })
+                
+                # Reset entry variables
+                entry_price = None
+                entry_time = None
+                entry_shares = None
         
-        # Calculate additional metrics
-        trades_df['return'] = trades_df['profit'] / trades_df['cost']
+        # Convert to DataFrame
+        report_df = pd.DataFrame(complete_trades)
         
-        return trades_df
+        if not report_df.empty:
+            # Set index to exit time for consistency with other methods
+            report_df.set_index('exit_time', inplace=True)
+            
+            # Add cumulative metrics
+            report_df['cumulative_profit'] = report_df['profit'].cumsum()
+            report_df['cumulative_return_pct'] = report_df['return_pct'].cumsum()
+            
+            # Convert duration to days if it's a timedelta
+            if 'duration' in report_df.columns and isinstance(report_df['duration'].iloc[0], pd.Timedelta):
+                report_df['duration'] = report_df['duration'].dt.total_seconds() / (24 * 60 * 60)  # Convert to days
+            
+            # Force numeric type and round all numeric columns to 2 decimal places
+            numeric_columns = ['entry_price', 'exit_price', 'shares', 'profit', 'return_pct', 
+                             'total_value', 'cumulative_profit', 'cumulative_return_pct', 'duration']
+            
+            for col in numeric_columns:
+                if col in report_df.columns:
+                    try:
+                        report_df[col] = pd.to_numeric(report_df[col])
+                    except (ValueError, TypeError):
+                        # Skip columns that can't be converted to numeric
+                        continue
+                    report_df[col] = report_df[col].round(2)
+            
+            # Ensure the DataFrame uses the rounded values for display
+            report_df = report_df.round(2)
+        
+        return report_df
     

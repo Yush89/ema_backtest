@@ -146,7 +146,7 @@ class Backtester:
             if row['signal'] == 1:  # Buy
                 # Record the buy
                 buy_trade = row.copy()
-                buy_trade['value'] = 500  # fixed buy value
+                buy_trade['value'] = self.position_size  # fixed buy value
                 buy_trade['pct_gain_loss'] = 0  # Entry trades have no gain/loss
                 trades_list.append(buy_trade)
                 open_trade = buy_trade
